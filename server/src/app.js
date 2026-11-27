@@ -7,6 +7,7 @@ import {
   createOrder, checkOrderStock, approveOrder, createInvoice,
   recordDispatch, recordPayment, StockShortageError,
 } from './services/sales.js';
+import { loadInvoice, renderInvoicePdf } from './services/invoicePdf.js';
 
 const app = express();
 app.use(cors());
@@ -102,6 +103,15 @@ app.post('/api/invoices/:id/payments', requireRole('ADMIN'), h(async (req, res) 
     invoiceId: ID(req), amount: req.body.amount, mode: req.body.mode,
   }));
   res.status(201).json({ paymentId });
+}));
+
+app.get('/api/invoices/:id/pdf', requireRole('ADMIN', 'ACCOUNTANT', 'OWNER'), h(async (req, res) => {
+  const data = await loadInvoice(pool, ID(req));
+  if (!data) return res.status(404).json({ error: 'Invoice not found' });
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition',
+    `inline; filename="invoice-${data.inv.invoice_no.replace('/', '-')}.pdf"`);
+  renderInvoicePdf(res, data);
 }));
 
 app.get('/api/outstanding', requireRole('ADMIN', 'ACCOUNTANT', 'OWNER'), h(async (req, res) => {

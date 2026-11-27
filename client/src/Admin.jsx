@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api } from './api.js';
+import { api, downloadFile } from './api.js';
 
 const rs = (p) => {
   const n = Number(p);
@@ -97,9 +97,16 @@ export default function AdminOrders() {
                 </div>
               )}
 
-              {o.invoice_id && (
+                            {o.invoice_id && (
                 <div className="muted" style={{ marginTop: 8 }}>
-                  Invoice {rs(o.total_paise)} · paid {rs(o.paid_paise)} · due {rs(due)}
+                  Invoice {rs(o.total_paise)} · paid {rs(o.paid_paise)} · due {rs(due)}{' '}
+                  <button className="link"
+                    onClick={() => downloadFile(
+                      `/invoices/${o.invoice_id}/pdf`,
+                      `invoice-${o.invoice_no.replace('/', '-')}.pdf`
+                    ).catch((e) => setMsg({ text: e.message, ok: false }))}>
+                    Download PDF
+                  </button>
                 </div>
               )}
 

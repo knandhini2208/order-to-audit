@@ -19,3 +19,16 @@ export async function api(path, { method = 'GET', body } = {}) {
   if (!res.ok) throw new Error(data.error || 'Request failed');
   return data;
 }
+// Downloads a protected file (the login token must travel in a header)
+export async function downloadFile(path, filename) {
+  const res = await fetch('/api' + path, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error('Could not download the file');
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
