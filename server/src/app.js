@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { pool, withTransaction } from './db.js';
 import { login, requireAuth, requireRole } from './auth.js';
+import { logAudit } from './services/audit.js';
 import {
   createOrder, checkOrderStock, approveOrder, createInvoice,
   recordDispatch, recordPayment, StockShortageError,
@@ -53,10 +54,13 @@ app.get('/api/orders', requireRole('SALESMAN', 'ADMIN', 'OWNER'), h(async (req, 
   const own = req.user.role === 'SALESMAN';
   const { rows } = await pool.query(
     `SELECT o.id, o.status, o.created_at, c.name AS customer, u.full_name AS salesman,
-            (SELECT SUM(qty) FROM order_items WHERE order_id = o.id) AS packets
+            (SELECT SUM(qty) FROM order_items WHERE order_id = o.id) AS packets,
+            inv.id AS invoice_id, inv.invoice_no, inv.total_paise,
+            COALESCE((SELECT SUM(amount_paise) FROM payments WHERE invoice_id = inv.id), 0) AS paid_paise
      FROM orders o
      JOIN customers c ON c.id = o.customer_id
      LEFT JOIN users u ON u.id = o.salesman_id
+     LEFT JOIN invoices inv ON inv.order_id = o.id AND inv.status = 'POSTED'
      WHERE ($1::int IS NULL OR o.salesman_id = $1)
      ORDER BY o.id DESC`,
     [own ? req.user.id : null]);
@@ -70,6 +74,18 @@ app.get('/api/orders/:id/stock-check', requireRole('ADMIN'), h(async (req, res) 
 app.post('/api/orders/:id/approve', requireRole('ADMIN'), h(async (req, res) => {
   await withTransaction((c) => approveOrder(c, ID(req), { userId: req.user.id }));
   res.json({ status: 'APPROVED' });
+}));
+
+app.post('/api/orders/:id/reject', requireRole('ADMIN'), h(async (req, res) => {
+  await withTransaction(async (c) => {
+    const { rows: [o] } = await c.query('SELECT status FROM orders WHERE id = $1 FOR UPDATE', [ID(req)]);
+    if (!o) throw new Error('Order not found');
+    if (o.status !== 'SUBMITTED') throw new Error(`Order is ${o.status}, cannot reject`);
+    await c.query(`UPDATE orders SET status = 'REJECTED' WHERE id = $1`, [ID(req)]);
+    await logAudit(c, { userId: req.user.id, entity: 'order', entityId: ID(req), action: 'REJECT',
+                        before: { status: 'SUBMITTED' }, after: { status: 'REJECTED' } });
+  });
+  res.json({ status: 'REJECTED' });
 }));
 
 app.post('/api/orders/:id/invoice', requireRole('ADMIN'), h(async (req, res) => {
@@ -86,6 +102,16 @@ app.post('/api/invoices/:id/payments', requireRole('ADMIN'), h(async (req, res) 
     invoiceId: ID(req), amount: req.body.amount, mode: req.body.mode,
   }));
   res.status(201).json({ paymentId });
+}));
+
+app.get('/api/outstanding', requireRole('ADMIN', 'ACCOUNTANT', 'OWNER'), h(async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT c.id, c.name,
+            COALESCE((SELECT SUM(total_paise) FROM invoices
+                      WHERE customer_id = c.id AND status = 'POSTED'), 0) AS billed_paise,
+            COALESCE((SELECT SUM(amount_paise) FROM payments WHERE customer_id = c.id), 0) AS paid_paise
+     FROM customers c ORDER BY c.name`);
+  res.json(rows);
 }));
 
 app.get('/api/stock', requireRole('ADMIN', 'PRODUCTION', 'ACCOUNTANT', 'OWNER'), h(async (req, res) => {

@@ -7,7 +7,8 @@
     "test": "vitest run",
     "db-reset": "node scripts/reset-db.js",
     "benchmark": "node scripts/reset-db.js && node scripts/step1-purchase.js && node scripts/step2-production.js && node scripts/step4-7-sales.js && node scripts/step8-costing.js",
-    "start": "node src/server.js"
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
   },
   "keywords": [],
   "author": "",

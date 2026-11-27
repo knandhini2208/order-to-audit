@@ -21,3 +21,11 @@ button:disabled { opacity: .5; }
 .badge.REJECTED { background: #f8d7da; }
 .top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .muted { color: #666; font-size: 13px; }
+.app.wide { max-width: 760px; }
+.order { padding: 10px 0; border-bottom: 1px solid #eee; }
+.order:last-child { border-bottom: 0; }
+.btns { display: flex; gap: 8px; align-items: center; }
+.btns button { margin-top: 8px; }
+.btns input { margin-top: 8px; }
+button.danger { background: #b00020; }
+.card.ok, .card.err { margin-top: 0; }

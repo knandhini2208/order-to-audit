@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, setToken } from './api.js';
+import AdminOrders from './Admin.jsx';
 
 // Display only: paise string to rupees text
 const rs = (p) => {
@@ -145,7 +146,7 @@ export default function App() {
   if (!user) return <div className="app"><Login onLogin={setUser} /></div>;
 
   return (
-    <div className="app">
+    <div className={user.role === 'SALESMAN' ? 'app' : 'app wide'}>
       <div className="top">
         <div>
           <strong>{user.name}</strong>
@@ -153,9 +154,9 @@ export default function App() {
         </div>
         <button className="link" onClick={logout}>Sign out</button>
       </div>
-      {user.role === 'SALESMAN'
-        ? <SalesmanOrders />
-        : <div className="card">The {user.role.toLowerCase()} screens are built in the next step.</div>}
+      {user.role === 'SALESMAN' ? <SalesmanOrders />
+        : user.role === 'ADMIN' ? <AdminOrders />
+        : <div className="card">The {user.role.toLowerCase()} screens are built in a later step.</div>}
     </div>
   );
 }
