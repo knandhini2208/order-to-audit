@@ -29,3 +29,8 @@ button:disabled { opacity: .5; }
 .btns input { margin-top: 8px; }
 button.danger { background: #b00020; }
 .card.ok, .card.err { margin-top: 0; }
+.flag { color: #b00020; font-weight: 600; }
+.fine { color: #1a6b3c; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.line { padding: 8px 0; border-bottom: 1px solid #eee; }
+.line:last-child { border-bottom: 0; }

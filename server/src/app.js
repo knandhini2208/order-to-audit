@@ -8,6 +8,7 @@ import {
   recordDispatch, recordPayment, StockShortageError,
 } from './services/sales.js';
 import { loadInvoice, renderInvoicePdf } from './services/invoicePdf.js';
+import { recordProductionRun, getRunReport } from './services/production.js';
 
 const app = express();
 app.use(cors());
@@ -112,6 +113,33 @@ app.get('/api/invoices/:id/pdf', requireRole('ADMIN', 'ACCOUNTANT', 'OWNER'), h(
   res.setHeader('Content-Disposition',
     `inline; filename="invoice-${data.inv.invoice_no.replace('/', '-')}.pdf"`);
   renderInvoicePdf(res, data);
+}));
+
+app.get('/api/bom/:code', requireRole('PRODUCTION', 'ADMIN', 'OWNER'), h(async (req, res) => {
+  const { rows: [bom] } = await pool.query(
+    `SELECT b.id, b.batch_yield, b.tolerance_bp, i.code, i.name
+     FROM boms b JOIN items i ON i.id = b.fg_item_id WHERE i.code = $1`, [req.params.code]);
+  if (!bom) return res.status(404).json({ error: 'No BOM for that product' });
+  const { rows: items } = await pool.query(
+    `SELECT i.code, i.name, i.item_type, i.base_unit, bi.qty_per_batch
+     FROM bom_items bi JOIN items i ON i.id = bi.item_id
+     WHERE bi.bom_id = $1 ORDER BY i.id`, [bom.id]);
+  res.json({ product: bom.code, name: bom.name, batchYield: bom.batch_yield,
+             toleranceBp: bom.tolerance_bp, items });
+}));
+
+app.post('/api/production-runs', requireRole('PRODUCTION', 'ADMIN'), h(async (req, res) => {
+  const { productCode, batches, goodOutput, lines, labour, overhead } = req.body;
+  const out = await withTransaction(async (c) => {
+    const run = await recordProductionRun(c, {
+      productCode, batches: batches || 1, goodOutput, lines,
+      labour: labour || '0', overhead: overhead || '0',
+    });
+    await logAudit(c, { userId: req.user.id, entity: 'production_run', entityId: run.runId,
+                        action: 'CREATE', after: { productCode, goodOutput } });
+    return { runId: run.runId, report: await getRunReport(c, run.runId) };
+  });
+  res.status(201).json(out);
 }));
 
 app.get('/api/outstanding', requireRole('ADMIN', 'ACCOUNTANT', 'OWNER'), h(async (req, res) => {
