@@ -142,6 +142,62 @@ app.post('/api/production-runs', requireRole('PRODUCTION', 'ADMIN'), h(async (re
   res.status(201).json(out);
 }));
 
+function csvCell(v) {
+  if (v === null || v === undefined) return '';
+  const s = String(v);
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+function sendCsv(res, filename, rows) {
+  const cols = rows.length ? Object.keys(rows[0]) : [];
+  const lines = [cols.join(','), ...rows.map((r) => cols.map((c) => csvCell(r[c])).join(','))];
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.send('\uFEFF' + lines.join('\r\n'));
+}
+const REPORT_ROLES = ['ADMIN', 'ACCOUNTANT', 'OWNER'];
+
+app.get('/api/reports/sales-register.csv', requireRole(...REPORT_ROLES), h(async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT i.invoice_no AS "Invoice No", to_char(i.invoice_date, 'DD-MM-YYYY') AS "Date",
+            c.name AS "Customer", COALESCE(c.gstin, '') AS "Customer GSTIN",
+            i.place_of_supply AS "Place of supply",
+            (i.taxable_paise / 100.0)::numeric(14,2) AS "Taxable value",
+            (i.cgst_paise / 100.0)::numeric(14,2) AS "CGST",
+            (i.sgst_paise / 100.0)::numeric(14,2) AS "SGST",
+            (i.igst_paise / 100.0)::numeric(14,2) AS "IGST",
+            (i.total_paise / 100.0)::numeric(14,2) AS "Total", i.status AS "Status"
+     FROM invoices i JOIN customers c ON c.id = i.customer_id
+     WHERE ($1::date IS NULL OR i.invoice_date >= $1::date)
+       AND ($2::date IS NULL OR i.invoice_date <= $2::date)
+     ORDER BY i.id`,
+    [req.query.from || null, req.query.to || null]);
+  sendCsv(res, 'sales-register.csv', rows);
+}));
+
+app.get('/api/reports/stock-summary.csv', requireRole(...REPORT_ROLES), h(async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT i.code AS "Code", i.name AS "Item", i.item_type AS "Type", i.base_unit AS "Unit",
+            COALESCE(b.qty, 0) AS "Closing qty (base unit)",
+            (COALESCE(b.value_paise, 0) / 100.0)::numeric(14,2) AS "Value"
+     FROM items i LEFT JOIN stock_balance b ON b.item_id = i.id ORDER BY i.id`);
+  sendCsv(res, 'stock-summary.csv', rows);
+}));
+
+app.get('/api/reports/stock-ledger.csv', requireRole(...REPORT_ROLES), h(async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT l.id AS "Entry", to_char(l.created_at AT TIME ZONE 'Asia/Kolkata', 'DD-MM-YYYY HH24:MI') AS "When",
+            i.code AS "Item", l.movement_type AS "Movement", l.qty_delta AS "Qty change",
+            i.base_unit AS "Unit",
+            SUM(l.qty_delta) OVER (PARTITION BY l.item_id ORDER BY l.id) AS "Running balance",
+            (l.value_delta_paise / 100.0)::numeric(14,2) AS "Value change",
+            l.source_type AS "Source", l.source_id AS "Source id"
+     FROM stock_ledger l JOIN items i ON i.id = l.item_id
+     WHERE ($1::text IS NULL OR i.code = $1)
+     ORDER BY i.id, l.id`,
+    [req.query.item || null]);
+  sendCsv(res, 'stock-ledger.csv', rows);
+}));
+
 app.get('/api/outstanding', requireRole('ADMIN', 'ACCOUNTANT', 'OWNER'), h(async (req, res) => {
   const { rows } = await pool.query(
     `SELECT c.id, c.name,
